@@ -14,6 +14,24 @@
 
 ---
 
+## 截图
+
+<div align="center">
+
+| 推荐 | 详情 |
+|---|---|
+| ![推荐](docs/screenshots/01-popular.jpg) | ![详情](docs/screenshots/02-detail.jpg) |
+
+| 时间表 | 追番 |
+|---|---|
+| ![时间表](docs/screenshots/03-schedule.jpg) | ![追番](docs/screenshots/04-collection.jpg) |
+
+| 设置 | 浅色主题 |
+|---|---|
+| ![设置](docs/screenshots/05-settings.jpg) | ![浅色](docs/screenshots/06-light.jpg) |
+
+</div>
+
 ## 这是什么
 
 Kazumi 是一个用 Flutter 写的跨平台番剧客户端，支持 Windows / macOS / Linux / Android / iOS。
