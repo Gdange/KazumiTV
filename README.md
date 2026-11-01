@@ -90,7 +90,21 @@ tvOS **没有 WebKit**，无法用 Kazumi 那套隐藏 WebView 截获 m3u8 的�
 
 页面跳转用 `fullScreenCover` 而非 `navigationDestination`——同一个 `NavigationStack` 里只能有一个 destination，多个会静默失效。
 
-## 构建
+## 下载
+
+[v0.1.0 Release](https://github.com/Gdange/KazumiTV/releases/tag/v0.1.0) 提供**未签名 ipa**（696 KB）。
+
+tvOS 应用必须签名才能安装，未签名的包需要用工具自签：
+
+| 工具 | 说明 |
+|---|---|
+| **Sideloadly** | 支持 tvOS，用 Apple ID 自动签名，最方便 |
+| **Xcode** | 归档后用开发者证书导出 |
+| **Apple Configurator** | 企业签名场景 |
+
+自签前提：Apple TV 开启开发者模式（设置 → 系统 → 关于本机 → 连按播放键 10 次），并与 Mac 配对。
+
+## 从源码构建
 
 需要 Xcode 15+ 和 tvOS 17+ SDK。
 
