@@ -1,0 +1,32 @@
+name: QYTV
+options:
+  bundleIdPrefix: com.yg
+  deploymentTarget:
+    tvOS: "17.0"
+  createIntermediateGroups: true
+targets:
+  QYTV:
+    type: application
+    platform: tvOS
+    sources:
+      - path: Sources
+      - path: Sources/Kazumi/rules
+        type: folder
+        buildPhase: resources
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: QYTV
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yg.qytv
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "3"
+        CODE_SIGN_STYLE: Automatic
+        HEADER_SEARCH_PATHS: $(SDKROOT)/usr/include/libxml2
+        OTHER_LDFLAGS: -lxml2
