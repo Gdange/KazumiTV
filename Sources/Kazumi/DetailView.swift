@@ -4,9 +4,35 @@ import SwiftUI
 struct DetailView: View {
     let item: MediaItem
     var initialRule: KazumiRule? = nil
+    /// 已知的 Bangumi 条目（首页/时间表点海报时直接传，省掉一次采集站搜索）
+    var knownSubject: BangumiItem? = nil
+
+    init(item: MediaItem, initialRule: KazumiRule? = nil, knownSubject: BangumiItem? = nil) {
+        self.item = item
+        self.initialRule = initialRule
+        self.knownSubject = knownSubject
+        self._subject = State(initialValue: knownSubject.map(Self.toSubject))
+    }
+
+    /// BangumiItem → BangumiSubject 的最小转换
+    static func toSubject(_ b: BangumiItem) -> BangumiSubject {
+        BangumiSubject(
+            id: b.id,
+            name: b.name,
+            nameCN: b.nameCN,
+            summary: b.info,
+            date: nil,
+            score: b.score,
+            rank: b.rank,
+            ratingTotal: nil,
+            image: b.image,
+            tags: []
+        )
+    }
 
     @State private var subject: BangumiSubject?
     @State private var chapters: [Chapter] = []
+    @State private var bgmEpisodes: [BangumiEpisode] = []
     @State private var status = "读取中…"
     @State private var loading = true
     @State private var playing: Chapter?
@@ -25,6 +51,8 @@ struct DetailView: View {
     @State private var chapterError = false
     @StateObject private var collection = CollectionStore.shared
     @StateObject private var matcher = SourceMatcher()
+    @State private var showSourcePanel = false
+    @State private var showEpisodePicker = false
     @State private var currentSource: XPathSource?
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 4)
@@ -37,7 +65,6 @@ struct DetailView: View {
             VStack(alignment: .leading, spacing: 24) {
                 topBlock
                 if let s = subject { infoBlock(s) }
-                chapterSection
             }
             .padding(.horizontal, 60)
             .padding(.top, 40)
@@ -45,12 +72,59 @@ struct DetailView: View {
         }
         .background(KZ.bg.ignoresSafeArea())
         .fullScreenCover(item: $playRoute) { r in
-            PlayScreen(target: r.target, title: r.title)
+            PlayScreen(
+                target: r.target,
+                title: r.title,
+                chapters: chapters,
+                bgmEpisodes: bgmEpisodes,
+                currentIndex: chapters.firstIndex(where: { $0.id == r.chapterID }) ?? 0,
+                onPick: { ch in
+                    Task {
+                        await resolve(ch)
+                    }
+                }
+            )
         }
-        .fullScreenCover(item: $tagRoute) { r in
+        .navigationDestination(item: $tagRoute) { r in
             TagResultView(tag: r.tag)
         }
+        .sheet(isPresented: $showSourcePanel) {
+            SourcePanel(matcher: matcher) { entry, item in
+                Task { await pickFromPanel(entry: entry, item: item) }
+            }
+        }
+        .sheet(isPresented: $showRating) {
+            if let sid = subject?.id {
+                RatingReviewSheet(subjectID: sid, title: subject?.displayName ?? item.name)
+            }
+        }
+        .sheet(isPresented: $showEpisodePicker) {
+            EpisodePicker(chapters: chapters, current: -1, bgmEpisodes: bgmEpisodes) { ch in
+                showEpisodePicker = false
+                Task { await resolve(ch) }
+            }
+        }
         .task { await load() }
+    }
+
+    /// 官方那个「开始观看」按钮：点它才扫源并弹面板
+    private var startWatchingButton: some View {
+        Button { Task { await startWatching() } } label: {
+            HStack(spacing: 8) {
+                if matcher.scanning {
+                    ProgressView().scaleEffect(0.7)
+                } else {
+                    Image(systemName: "play.fill")
+                }
+                Text(matcher.scanning ? "正在查找…" : "开始观看")
+            }
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(KZ.onAccent)
+            .padding(.horizontal, 26).padding(.vertical, 12)
+            .background(Capsule().fill(KZ.accent))
+        }
+        .buttonStyle(.plain)
+        .disabled(matcher.scanning)
     }
 
     // MARK: 播放源切换（官方 InfoPage 顶部那排）
@@ -59,29 +133,25 @@ struct DetailView: View {
             if matcher.scanning {
                 HStack(spacing: 10) {
                     ProgressView()
-                    Text("正在查找可用播放源…").font(.system(size: 14)).foregroundStyle(KZ.dim)
+                    Text("正在扫描播放源… \(matcher.usableCount) 个可用")
+                        .font(.system(size: 14)).foregroundStyle(KZ.dim)
                 }
-            } else if matcher.hits.isEmpty {
-                Text("没有源收录这部番").font(.system(size: 14)).foregroundStyle(.orange)
             } else {
                 HStack(spacing: 10) {
                     Text("播放源").font(.system(size: 14)).foregroundStyle(KZ.dim)
-                    ForEach(matcher.hits) { hit in
-                        Button {
-                            Task { await selectSource(hit) }
-                        } label: {
-                            HStack(spacing: 7) {
-                                Circle()
-                                    .fill(currentSource?.name == hit.id ? KZ.onAccent : KZ.accent)
-                                    .frame(width: 6, height: 6)
-                                Text(hit.id).font(.system(size: 14,
-                                    weight: currentSource?.name == hit.id ? .semibold : .regular))
+                    if matcher.totalResults > 0 {
+                        Button { showSourcePanel = true } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "list.bullet")
+                                Text("\(matcher.entries.count) 个来源 · \(matcher.totalResults) 个结果")
+                                    .font(.system(size: 14, weight: .medium))
                             }
-                            .foregroundStyle(currentSource?.name == hit.id ? KZ.onAccent : KZ.label)
-                            .padding(.horizontal, 16).padding(.vertical, 7)
-                            .background(Capsule().fill(currentSource?.name == hit.id ? KZ.accent : KZ.card))
+                            .padding(.horizontal, 16).padding(.vertical, 8)
+                            .background(Capsule().fill(KZ.accent.opacity(0.18)))
                         }
                         .buttonStyle(.plain)
+                    } else {
+                        Text("没有源收录这部番").font(.system(size: 14)).foregroundStyle(.orange)
                     }
                     Spacer()
                 }
@@ -158,19 +228,18 @@ struct DetailView: View {
                         }
                     }
 
-                    if let first = chapters.first {
-                        Button { Task { await resolve(first) } } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "play.fill")
-                                Text("开始观看")
-                            }
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(KZ.onAccent)
-                            .padding(.horizontal, 24).padding(.vertical, 11)
-                            .background(Capsule().fill(KZ.accent))
+                    Button { Task { await startWatching() } } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "play.fill")
+                            Text(matcher.scanning ? "正在扫描…" : "开始观看")
                         }
-                        .buttonStyle(.plain)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(KZ.onAccent)
+                        .padding(.horizontal, 24).padding(.vertical, 11)
+                        .background(Capsule().fill(KZ.accent))
                     }
+                    .buttonStyle(.plain)
+                    .disabled(matcher.scanning)
                 }
                 .padding(.top, 6)
 
@@ -245,7 +314,7 @@ struct DetailView: View {
 
             switch tab {
             case .overview:   overviewContent(s)
-            case .comments:   CommentList(comments: comments)
+            case .comments:   CommentList(subjectID: subject?.id, initial: comments) { showRating = true }
             case .characters: CharacterGrid(characters: characters)
             case .relations:  RelationList(relations: relations)
             case .staff:      StaffList(staff: staff)
@@ -319,47 +388,71 @@ struct DetailView: View {
         loading = true
         defer { loading = false }
 
-        // Bangumi 信息（并行，失败不影响剧集）
-        async let bgm: BangumiSubject? = try? await BangumiAPI.findSubject(named: item.name)
-
-        // 多源扫描
-        status = "正在搜索可用播放源…"
-        await matcher.scan(name: item.name)
-
-        if matcher.hits.isEmpty {
-            status = "所有源都没搜到这部番"
-            chapterError = true
+        // Bangumi 信息：已知条目就直接用（首页点进来），否则按名字查
+        if let known = knownSubject {
+            async let detail: BangumiSubject? = try? await BangumiAPI.subject(id: known.id)
+            _ = await detail
+            if let d = await detail, d.name.isEmpty == false {
+                subject = d          // 拿到完整数据就覆盖预填的
+            }
         } else {
-            // 优先用传入的源
-            let prefer = matcher.hits.first { $0.id == initialRule?.name } ?? matcher.hits[0]
-            await selectSource(prefer)
+            subject = try? await BangumiAPI.findSubject(named: item.name)
         }
 
-        subject = await bgm
+        // 进详情页不扫源。用户点「开始观看」时再扫（对齐官方）
+        status = "点「开始观看」选择播放来源"
 
         if let id = subject?.id {
-            async let c1: [BgmComment] = (try? await BangumiAPI.comments(id)) ?? []
+            async let c1: [BgmComment] = (try? await BangumiAPI.comments(id))?.items ?? []
             async let c2: [BgmCharacter] = (try? await BangumiAPI.characters(id)) ?? []
             async let c3: [BgmRelation] = (try? await BangumiAPI.relations(id)) ?? []
             async let c4: [BgmStaff] = (try? await BangumiAPI.staff(id)) ?? []
+            async let eps: [BangumiEpisode] = await BangumiAPI.episodes(subjectID: id)
             comments = await c1
             characters = await c2
             relations = await c3
             staff = await c4
+            bgmEpisodes = await eps
+            ImagePrefetcher.prefetch(
+                characters.compactMap { $0.image } + relations.compactMap { $0.image },
+                limit: 20
+            )
         }
     }
 
     /// 切换播放源
-    private func selectSource(_ hit: SourceMatcher.Hit) async {
-        currentSource = XPathSource(rule: hit.rule)
-        playItem = hit.item
+    /// 点「开始观看」：立刻弹面板，扫描结果边跑边填（不等扫完）
+    private func startWatching() async {
+        showSourcePanel = true
+        if matcher.entries.isEmpty {
+            // 带上 Bangumi 的别名一起搜，命中率更高
+            let aliases = subject?.alias ?? []
+            await matcher.scan(name: item.name, aliases: aliases)
+        }
+    }
+
+    /// 从来源面板选中一条
+    private func pickFromPanel(entry: SourceMatcher.Entry, item: MediaItem) async {
+        await selectSource(entry: entry, item: item)
+        guard !chapters.isEmpty else {
+            status = "这个源没有剧集"
+            return
+        }
+        // 选完源 → 弹剧集面板，让用户自己挑一集
+        showEpisodePicker = true
+    }
+
+    private func selectSource(entry: SourceMatcher.Entry, item: MediaItem) async {
+        let src = XPathSource(rule: entry.rule)
+        currentSource = src
+        playItem = item
         chapters = []
         chapterError = false
         do {
-            chapters = try await currentSource!.chapters(hit.item)
-            status = "共 \(chapters.count) 集 · \(hit.rule.name)"
+            chapters = try await src.chapters(item)
+            status = "共 \(chapters.count) 集 · \(entry.rule.name)"
         } catch {
-            status = "\(hit.rule.name) 读取剧集失败"
+            status = "\(entry.rule.name) 读取剧集失败"
             chapterError = true
         }
     }
@@ -374,7 +467,7 @@ struct DetailView: View {
             let t = try await src.resolve(ch)
             target = t
             status = "已解析到地址，正在打开播放器…"
-            playRoute = PlayRoute(target: t, title: ch.name)
+            playRoute = PlayRoute(target: t, title: ch.name, chapterID: ch.id)
         } catch {
             status = "解析失败：\(error.localizedDescription)"
         }
@@ -390,26 +483,20 @@ struct FlowTags: View {
         FlowLayout(spacing: 8, lineSpacing: 8) {
             ForEach(Array(tags.indices), id: \.self) { i in
                 let item = tags[i]
-                Button {
-                    onTap(item.0)
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(item.0).font(.system(size: 14))
-                        Text("\(item.1)").font(.system(size: 12)).foregroundStyle(KZ.dim)
-                    }
-                    .padding(.horizontal, 14).padding(.vertical, 7)
-                    .background(Capsule().fill(KZ.card))
-                }
-                .buttonStyle(.plain)
+                TagChipInline(label: item.0, count: item.1) { onTap(item.0) }
             }
         }
     }
 }
 
 /// 标签跳转参数（用 item 方式传，避免闭包捕获旧 state）
-struct TagRoute: Identifiable {
+struct TagRoute: Identifiable, Hashable {
     let id = UUID()
     let tag: String
+
+    init(tag: String) { self.tag = tag }
+    static func == (a: TagRoute, b: TagRoute) -> Bool { a.id == b.id }
+    func hash(into h: inout Hasher) { h.combine(id) }
 }
 
 
@@ -418,4 +505,28 @@ struct PlayRoute: Identifiable {
     let id = UUID()
     let target: PlaybackTarget
     let title: String
+    var chapterID: String = ""
+}
+
+
+/// 详情页标签（带计数），可聚焦
+struct TagChipInline: View {
+    let label: String
+    let count: Int
+    let action: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text(label).font(.system(size: 14))
+                Text("\(count)").font(.system(size: 12)).foregroundStyle(KZ.dim)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 7)
+            .background(Capsule().fill(KZ.card))
+            .focusChip(focused)
+        }
+        .buttonStyle(.plain)
+        .focused($focused)
+    }
 }

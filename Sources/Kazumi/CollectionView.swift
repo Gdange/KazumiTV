@@ -3,7 +3,7 @@ import SwiftUI
 /// 追番：状态分类 + 网格/列表切换（对齐官方 CollectPage）
 struct CollectionView: View {
     @StateObject private var store = CollectionStore.shared
-    @StateObject private var route = DetailRoute.shared
+    @StateObject private var route = DetailRoute()
     @State private var filter: CollectStatus? = .watching   // nil = 全部
     @State private var grid = true
 

@@ -15,14 +15,7 @@ struct PosterCard: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: KZ.imgRadius).fill(KZ.card)
                     if let s = image, let u = URL(string: s) {
-                        AsyncImage(url: u) { phase in
-                            switch phase {
-                            case .success(let img): img.resizable().scaledToFill()
-                            default: Text(name.prefix(1))
-                                    .font(.system(size: 52, weight: .thin))
-                                    .foregroundStyle(KZ.dim)
-                            }
-                        }
+                        CachedImage(url: u, placeholder: name)
                     } else {
                         Text(name.prefix(1))
                             .font(.system(size: 52, weight: .thin))

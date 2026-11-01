@@ -49,7 +49,11 @@ struct RuleChapter: Identifiable, Hashable {
 extension KazumiRule {
     /// 构造搜索请求 URL：规则里用 @keyword 占位
     func searchURL(for keyword: String) -> URL? {
-        let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
+        // urlQueryAllowed 会放行 # & = 等字符，其中 # 会被当作锚点把搜索词截断，
+        // & 会被当作参数分隔符。逐个剔除后再编码。
+        var cs = CharacterSet.urlQueryAllowed
+        cs.remove(charactersIn: "#&=?+/:%[]@!$'()*,")
+        let encoded = keyword.addingPercentEncoding(withAllowedCharacters: cs) ?? keyword
         let s = searchURL.replacingOccurrences(of: "@keyword", with: encoded)
         return URL(string: s)
     }

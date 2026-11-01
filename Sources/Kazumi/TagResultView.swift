@@ -9,7 +9,8 @@ struct TagResultView: View {
     @State private var status = "正在按标签搜索…"
     @State private var loading = false
     @State private var sort = "heat"
-    @StateObject private var route = DetailRoute.shared
+    @State private var pushedItem: MediaItem?
+    @State private var matching = false
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: KZ.cardSpace), count: KZ.columns)
 
@@ -24,21 +25,82 @@ struct TagResultView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        Group {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 sortBar
-                Text(status).font(.system(size: 13)).foregroundStyle(KZ.dim)
+                if matching {
+                    HStack(spacing: 8) {
+                        ProgressView().scaleEffect(0.6)
+                        Text("正在匹配来源…").font(.system(size: 13)).foregroundStyle(KZ.dim)
+                    }
+                } else if let m = matchMessage {
+                    Text(m).font(.system(size: 13)).foregroundStyle(.orange)
+                } else {
+                    Text(status).font(.system(size: 13)).foregroundStyle(KZ.dim)
+                }
                 content
             }
             .padding(.horizontal, 60).padding(.top, 32)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(KZ.bg.ignoresSafeArea())
-            .navigationDestination(item: $route.opened) { m in
+            .navigationDestination(item: $pushedItem) { m in
                 DetailView(item: m, initialRule: defaultRule)
             }
         }
         .task { await load() }
+    }
+
+    @State private var matchMessage: String? = nil
+
+    /// 按名字在可用源里匹配，成功就压栈
+    private func openItem(_ name: String) async {
+        guard !matching else { return }
+        matching = true
+        matchMessage = nil
+        defer { matching = false }
+
+        let rules = RuleCatalog.installed().map(\.rule)
+            .filter { SourceRank.score($0.name) > -6 }
+            .sorted { SourceRank.score($0.name) > SourceRank.score($1.name) }
+        let variants = Array(XPathSource.searchVariants(name).prefix(2))
+
+        let found = await withTaskGroup(of: MediaItem?.self) { group -> MediaItem? in
+            var q = rules.prefix(12)[...]
+            var running = 0
+            while running < 8, let rule = q.first {
+                q = q.dropFirst(); running += 1
+                group.addTask {
+                    let src = XPathSource(rule: rule)
+                    for v in variants {
+                        if let l = try? await src.search(v, fast: true), let f = l.first { return f }
+                    }
+                    return nil
+                }
+            }
+            let deadline = Date().addingTimeInterval(8)
+            for await r in group {
+                if let r { group.cancelAll(); return r }
+                if let rule = q.first {
+                    q = q.dropFirst()
+                    group.addTask {
+                        let src = XPathSource(rule: rule)
+                        for v in variants {
+                            if let l = try? await src.search(v, fast: true), let f = l.first { return f }
+                        }
+                        return nil
+                    }
+                }
+                if Date() > deadline { group.cancelAll(); break }
+            }
+            return nil
+        }
+
+        if let m = found {
+            pushedItem = m          // 压进父栈
+        } else {
+            matchMessage = "「\(name)」没在可用源里找到"
+        }
     }
 
     private var defaultRule: KazumiRule {
@@ -91,7 +153,7 @@ struct TagResultView: View {
                 LazyVGrid(columns: columns, spacing: 26) {
                     ForEach(items) { item in
                         Button {
-                            Task { await route.open(name: item.displayName) }
+                            Task { await openItem(item.displayName) }
                         } label: {
                             VStack(alignment: .leading, spacing: 8) {
                                 ZStack {

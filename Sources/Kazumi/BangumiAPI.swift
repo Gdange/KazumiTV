@@ -54,7 +54,7 @@ enum BangumiAPI {
                 id: id,
                 name: r["name"] as? String ?? "",
                 nameCN: (r["name_cn"] as? String) ?? (r["nameCN"] as? String),
-                image: (images?["large"] as? String) ?? (images?["common"] as? String),
+                image: (images?["common"] as? String) ?? (images?["large"] as? String),
                 info: nil,
                 score: rating?["score"] as? Double,
                 rank: rating?["rank"] as? Int
@@ -88,7 +88,7 @@ enum BangumiAPI {
                 id: id,
                 name: sub["name"] as? String ?? "",
                 nameCN: sub["nameCN"] as? String,
-                image: (images?["large"] as? String) ?? (images?["common"] as? String),
+                image: (images?["common"] as? String) ?? (images?["large"] as? String),
                 info: sub["info"] as? String,
                 score: rating?["score"] as? Double,
                 rank: rating?["rank"] as? Int
@@ -128,7 +128,7 @@ enum BangumiAPI {
                 id: id,
                 name: sub["name"] as? String ?? "",
                 nameCN: sub["name_cn"] as? String ?? sub["nameCN"] as? String,
-                image: (images?["large"] as? String) ?? (images?["common"] as? String),
+                image: (images?["common"] as? String) ?? (images?["large"] as? String),
                 info: nil
             )
         }
@@ -171,7 +171,7 @@ enum BangumiAPI {
                         id: id,
                         name: sub["name"] as? String ?? "",
                         nameCN: sub["nameCN"] as? String,
-                        image: (images?["large"] as? String) ?? (images?["common"] as? String),
+                        image: (images?["common"] as? String) ?? (images?["large"] as? String),
                         info: sub["info"] as? String,
                         score: rating?["score"] as? Double,
                         rank: rating?["rank"] as? Int

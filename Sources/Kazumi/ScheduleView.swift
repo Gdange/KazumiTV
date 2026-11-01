@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 时间表：周历条 + 番组列表（对齐官方 SchedulePage）
 struct ScheduleView: View {
-    @StateObject private var route = DetailRoute.shared
+    @StateObject private var route = DetailRoute()
     @State private var week: [[BangumiItem]] = []
     @State private var dayIndex = 0
     @State private var status = "正在读取放送表…"
@@ -42,7 +42,17 @@ struct ScheduleView: View {
         .padding(.horizontal, 60).padding(.top, 36)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(KZ.bg.ignoresSafeArea())
-        .task { await load() }
+        .task {
+            await load()
+            prefetchCurrentDay()
+        }
+        .onChange(of: dayIndex) { _, _ in prefetchCurrentDay() }
+    }
+
+    /// 只预取当前这一天的封面，切天时再补
+    private func prefetchCurrentDay() {
+        guard week.indices.contains(dayIndex) else { return }
+        ImagePrefetcher.prefetch(week[dayIndex].compactMap { $0.image }, limit: 18)
     }
 
     private var header: some View {
@@ -83,6 +93,13 @@ struct ScheduleView: View {
     }
 
     private func weekChip(_ i: Int) -> some View {
+        WeekChip(index: i,
+                 label: i == todayIndex ? "今天" : dayNames[i],
+                 count: week.indices.contains(i) ? week[i].count : 0,
+                 selected: i == dayIndex) { dayIndex = i }
+    }
+
+    private func weekChipOld(_ i: Int) -> some View {
         let isToday = i == todayIndex
         let isSel = i == dayIndex
         return Button { dayIndex = i } label: {
@@ -216,5 +233,43 @@ struct ScheduleRow: View {
             return parts.dropFirst().prefix(2).joined(separator: " · ")
         }
         return raw
+    }
+}
+
+
+/// 可聚焦的星期按钮
+struct WeekChip: View {
+    let index: Int
+    let label: String
+    let count: Int
+    let selected: Bool
+    let action: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Text(label)
+                    .font(.system(size: 15, weight: selected ? .semibold : .regular))
+                Text("\(count)")
+                    .font(.system(size: 13))
+                    .opacity(0.7)
+            }
+            .foregroundStyle(selected ? KZ.onAccent : KZ.label)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(selected ? KZ.accent : (focused ? KZ.accent.opacity(0.15) : .clear))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(focused ? KZ.accent : .clear, lineWidth: 2.5)
+            )
+            .scaleEffect(focused ? 1.05 : (selected ? 1.0 : 0.96))
+            .animation(.easeOut(duration: 0.15), value: focused)
+        }
+        .buttonStyle(.plain)
+        .focused($focused)
     }
 }

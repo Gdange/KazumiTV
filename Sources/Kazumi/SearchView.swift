@@ -12,7 +12,7 @@ struct SearchView: View {
     @State private var loading = false
     @State private var opened: MediaItem?
     @StateObject private var history = SearchHistoryStore.shared
-    @StateObject private var route = DetailRoute.shared
+    @StateObject private var route = DetailRoute()
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: KZ.cardSpace), count: KZ.columns)
 

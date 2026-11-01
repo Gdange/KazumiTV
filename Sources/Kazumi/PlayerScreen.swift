@@ -1,238 +1,254 @@
 import SwiftUI
 import AVKit
 
-/// 播放页：AVPlayer + 倍速 / 清晰度 / 弹幕开关
+/// 播放页：AVPlayer + 实时画质信息
 struct PlayScreen: View {
     let target: PlaybackTarget
     let title: String
 
-    @Environment(\.dismiss) private var dismiss
+    /// 同一部番的所有剧集（用于播放中切集）
+    var chapters: [Chapter] = []
+    /// Bangumi 官方剧集（显示正式标题）
+    var bgmEpisodes: [BangumiEpisode] = []
+    /// 当前是第几集
+    var currentIndex: Int = 0
+    /// 切集回调
+    var onPick: ((Chapter) -> Void)? = nil
+
+    @State private var showEpisodes = false
+    @State private var showSpeed = false
+    @State private var showTimer = false
+    @State private var showInfo2 = false
+    @State private var rate: Float = 1.0
+    @State private var sleepMinutes: Int? = nil
+    @State private var sleepDeadline: Date? = nil
+    @State private var sleepRemaining: Int = 0
+
     @State private var player: AVPlayer?
     @State private var error: String?
-    @State private var rate: Float = 1.0
-    @State private var danmakuOn = true
-    @State private var danmaku: [DanmakuEntry] = []
-    @State private var danmakuStatus = ""
-    @State private var showControls = true
-    @State private var playing = false
-    @State private var duration: Double = 0
-    @State private var position: Double = 0
-    @State private var timeObserver: Any?
+    @State private var resolution = "—"
+    @State private var bitrate = "—"
+    @State private var hdr = ""
+    @State private var showInfo = true
 
-    private let rates: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+    @State private var sizeObserver: NSKeyValueObservation?
+    @State private var logObserver: NSObjectProtocol?
+    @State private var loader: StreamLoader?
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
 
             if let error {
-                VStack(spacing: 16) {
+                VStack(spacing: 14) {
                     Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 54)).foregroundStyle(.orange)
-                    Text(error)
-                        .font(.system(size: 19)).multilineTextAlignment(.center)
-                        .padding(.horizontal, 80)
-                    Button("返回") { dismiss() }
-                        .buttonStyle(.borderedProminent)
-                        .padding(.top, 10)
-                }
+                        .font(.system(size: 52)).foregroundStyle(.orange)
+                    Text(error).font(.system(size: 20)).multilineTextAlignment(.center)
+                }.padding(60)
             } else if let player {
-                VideoPlayer(player: player)
-                    .ignoresSafeArea()
+                VideoPlayer(player: player).ignoresSafeArea()
+            } else {
+                ProgressView("正在解析地址…")
+            }
 
-                // 顶部标题 + 返回
-                VStack {
-                    HStack(spacing: 14) {
-                        Button { dismiss() } label: {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 18, weight: .semibold))
-                                .frame(width: 46, height: 46)
-                                .background(Circle().fill(.black.opacity(0.55)))
+            VStack(alignment: .trailing, spacing: 10) {
+                if showInfo && error == nil { infoBadge }
+
+                HStack(spacing: 8) {
+                    // 视频详情
+                    Button { showInfo2 = true } label: {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 13))
+                            .padding(.horizontal, 12).padding(.vertical, 7)
+                            .background(.black.opacity(0.5))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+
+                    // 倍速
+                    Button { showSpeed = true } label: {
+                        Text(rate == 1.0 ? "倍速" : String(format: "%.2gx", rate))
+                            .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            .padding(.horizontal, 12).padding(.vertical, 7)
+                            .background(.black.opacity(0.5))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+
+                    // 定时关闭
+                    Button { showTimer = true } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "moon.zzz")
+                            if let m = sleepMinutes {
+                                Text(sleepRemaining > 0 ? "\(sleepRemaining/60)m" : "\(m)m")
+                                    .font(.system(size: 12, design: .monospaced))
+                            }
+                        }
+                        .font(.system(size: 13))
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(.black.opacity(0.5))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+
+                    // 选集
+                    if !chapters.isEmpty {
+                        Button { showEpisodes = true } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "list.bullet")
+                                Text("\(currentIndex + 1)/\(chapters.count)")
+                                    .font(.system(size: 13, design: .monospaced))
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 7)
+                            .background(.black.opacity(0.5))
+                            .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
-
-                        Text(title)
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 16).padding(.vertical, 8)
-                            .background(Capsule().fill(.black.opacity(0.55)))
-                        Spacer()
                     }
-                    .padding(.horizontal, 44).padding(.top, 36)
-                    Spacer()
                 }
-
-                // 底部控制条
-                VStack {
-                    Spacer()
-                    controlBar
-                }
-
-                if danmakuOn && !danmaku.isEmpty {
-                    DanmakuLayer(entries: danmaku, time: position)
-                        .allowsHitTesting(false)
-                }
-            } else {
-                ProgressView("正在加载…")
-                    .font(.system(size: 18))
+            }
+            .padding(28)
+        }
+        .sheet(isPresented: $showInfo2) {
+            VideoInfoSheet(item: player?.currentItem)
+        }
+        .sheet(isPresented: $showSpeed) {
+            SpeedSheet(rate: $rate) { r in
+                rate = r
+                player?.rate = r
+                showSpeed = false
             }
         }
-        .onAppear(perform: start)
-        .onDisappear { cleanup() }
-    }
-
-    // MARK: 控制条
-    private var controlBar: some View {
-        HStack(spacing: 18) {
-            // 倍速
-            Menu {
-                ForEach(rates, id: \.self) { r in
-                    Button(rateLabel(r)) { setRate(r) }
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "speedometer").font(.system(size: 14))
-                    Text(rateLabel(rate)).font(.system(size: 14, weight: .medium))
-                }
-                .padding(.horizontal, 16).padding(.vertical, 9)
-                .background(Capsule().fill(.black.opacity(0.6)))
+        .sheet(isPresented: $showTimer) {
+            SleepTimerSheet(current: sleepMinutes) { mins in
+                showTimer = false
+                applySleepTimer(mins)
             }
-
-            // 清晰度（m3u8 多码率时由系统自动选择，这里只作提示）
-            Menu {
-                Button("自动") { }
-                Text("当前源为单码率")
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "rectangle.on.rectangle").font(.system(size: 14))
-                    Text("自动").font(.system(size: 14, weight: .medium))
-                }
-                .padding(.horizontal, 16).padding(.vertical, 9)
-                .background(Capsule().fill(.black.opacity(0.6)))
-            }
-
-            // 弹幕开关
-            Button {
-                danmakuOn.toggle()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: danmakuOn ? "text.bubble.fill" : "text.bubble")
-                        .font(.system(size: 14))
-                    Text("弹幕").font(.system(size: 14, weight: .medium))
-                }
-                .foregroundStyle(danmakuOn ? .black : .white)
-                .padding(.horizontal, 16).padding(.vertical, 9)
-                .background(Capsule().fill(danmakuOn ? KZ.accent : .black.opacity(0.6)))
-            }
-            .buttonStyle(.plain)
-
-            Spacer()
-
-            Text(timeText)
-                .font(.system(size: 13, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.75))
-                .padding(.horizontal, 14).padding(.vertical, 8)
-                .background(Capsule().fill(.black.opacity(0.6)))
         }
-        .padding(.horizontal, 44).padding(.bottom, 44)
+        .sheet(isPresented: $showEpisodes) {
+            EpisodePicker(chapters: chapters, current: currentIndex, bgmEpisodes: bgmEpisodes) { ch in
+                showEpisodes = false
+                onPick?(ch)
+            }
+        }
+        .navigationTitle(title)
+        .onAppear {
+            ImagePrefetcher.pause()      // 播放优先，暂停后台图片预取
+            start()
+        }
+        .onDisappear {
+            ImagePrefetcher.resume()
+            stop()
+        }
     }
 
-    private var timeText: String {
-        let p = Int(position), d = Int(duration)
-        return String(format: "%02d:%02d / %02d:%02d", p / 60, p % 60, d / 60, d % 60)
+    /// 右上角画质角标
+    private var infoBadge: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(resolution)
+                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                if !hdr.isEmpty {
+                    Text(hdr)
+                        .font(.system(size: 11, weight: .bold))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(KZ.accent.opacity(0.9))
+                        .foregroundStyle(KZ.bg)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
+            }
+            Text("\(bitrate) Mbps")
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(KZ.dim)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(.black.opacity(0.45))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
-    private func rateLabel(_ r: Float) -> String {
-        r == 1.0 ? "正常" : String(format: "%gx", r)
-    }
-
-    private func setRate(_ r: Float) {
-        rate = r
-        player?.rate = r
-    }
-
-    // MARK: 播放
     private func start() {
         switch target.drm {
         case .unsupported(let reason):
             error = reason
             return
         case .fairPlay:
-            error = "FairPlay 流暂不支持"
+            error = "FairPlay 流需要额外实现（当前版本只支持明文）"
             return
         case .none:
             break
         }
 
+        // 优先直连：绝大多数 CDN 用 header 就能播（实测可行）
+        // 只有直连失败（TLS 受限的 CDN）才退回 StreamLoader
         let asset = AVURLAsset(url: target.url, options: [
             "AVURLAssetHTTPHeaderFieldsKey": target.headers
         ])
         let item = AVPlayerItem(asset: asset)
         let p = AVPlayer(playerItem: item)
         player = p
+        p.play()
 
-        // 进度 + 时长
-        timeObserver = p.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main
-        ) { t in
-            position = t.seconds
-        }
-
-        Task { @MainActor in
-            for _ in 0..<40 {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                if item.status == .readyToPlay {
-                    duration = item.duration.seconds.isFinite ? item.duration.seconds : 0
-                    p.rate = rate
-                    playing = true
-                    Task { await loadDanmaku() }
-                    return
-                }
-                if item.status == .failed {
-                    error = "播放失败：\(item.error?.localizedDescription ?? "未知")"
-                    return
-                }
-            }
-            if item.status != .readyToPlay {
-                error = "加载超时（20 秒）"
+        // 分辨率：KVO
+        sizeObserver = item.observe(\.presentationSize, options: [.new]) { it, _ in
+            let s = it.presentationSize
+            guard s.width > 0, s.height > 0 else { return }
+            DispatchQueue.main.async {
+                resolution = "\(Int(s.width))×\(Int(s.height))"
+                if s.height >= 2000 { hdr = "4K" }
+                else if s.height >= 1000 { hdr = "FHD" }
+                else { hdr = "" }
             }
         }
+
+        // 码率 + 色彩信息：access log
+        logObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemNewAccessLogEntry, object: item, queue: .main
+        ) { _ in
+            guard let e = item.accessLog()?.events.last else { return }
+            let mbps = e.observedBitrate / 1_000_000
+            if mbps > 0 { bitrate = String(format: "%.1f", mbps) }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main
+        ) { note in
+            let e = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+            error = e?.localizedDescription ?? "播放失败"
+        }
     }
 
-    /// 按番名 + 集数拉弹幕
-    private func loadDanmaku() async {
-        guard danmaku.isEmpty else { return }
-        // 从标题里猜集数（"第01集" / "01" / "1"）
-        let ep = extractEpisodeNumber(title)
-        danmakuStatus = "正在找弹幕…"
-        do {
-            let list = try await DanmakuAPI.searchEpisodes(anime: cleanTitle(title))
-            guard let match = list.first(where: { $0.ep == ep }) ?? list.first else {
-                danmakuStatus = "没有匹配的弹幕库"
-                return
+    /// 设定定时关闭
+    private func applySleepTimer(_ minutes: Int?) {
+        sleepMinutes = minutes
+        if let m = minutes {
+            sleepDeadline = Date().addingTimeInterval(Double(m) * 60)
+            sleepRemaining = m * 60
+            startSleepTicker()
+        } else {
+            sleepDeadline = nil
+            sleepRemaining = 0
+        }
+    }
+
+    private func startSleepTicker() {
+        Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { t in
+            guard let deadline = sleepDeadline else { t.invalidate(); return }
+            let left = Int(deadline.timeIntervalSinceNow)
+            if left <= 0 {
+                t.invalidate()
+                player?.pause()
+                sleepMinutes = nil
+                sleepDeadline = nil
+                sleepRemaining = 0
+            } else {
+                sleepRemaining = left
             }
-            danmaku = try await DanmakuAPI.comments(episodeId: match.id)
-            danmakuStatus = danmaku.isEmpty ? "这集没有弹幕" : "弹幕 \(danmaku.count) 条"
-        } catch {
-            danmakuStatus = error.localizedDescription
         }
     }
 
-    private func cleanTitle(_ s: String) -> String {
-        s.replacingOccurrences(of: #"第\s*\d+\s*[集话]"#, with: "", options: .regularExpression)
-         .trimmingCharacters(in: .whitespaces)
-    }
-
-    private func extractEpisodeNumber(_ s: String) -> Int {
-        if let m = s.range(of: #"\d+"#, options: .regularExpression) {
-            return Int(s[m]) ?? 1
-        }
-        return 1
-    }
-
-    private func cleanup() {
-        if let t = timeObserver { player?.removeTimeObserver(t) }
+    private func stop() {
+        sizeObserver?.invalidate()
+        if let logObserver { NotificationCenter.default.removeObserver(logObserver) }
         player?.pause()
-        player = nil
     }
 }

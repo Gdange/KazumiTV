@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var installedCount = RuleCatalog.installed().count
 
     enum Section: String, CaseIterable, Identifiable {
+        case account = "账号"
         case player = "播放"
         case resource = "资源"
         case rules = "规则"
@@ -16,6 +17,7 @@ struct SettingsView: View {
         var id: String { rawValue }
         var icon: String {
             switch self {
+            case .account: return "person.crop.circle"
             case .player: return "play.rectangle"
             case .resource: return "square.stack.3d.up"
             case .rules: return "list.bullet.rectangle"
@@ -43,11 +45,97 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: 账号
+
+    @State private var tokenInput = ""
+    @State private var loggingIn = false
+    @State private var loginMessage: String?
+
+    private var accountPanel: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Bangumi 账号")
+                .font(.system(size: 17, weight: .semibold))
+
+            Text("登录后可同步追番、发布评分与短评。Token 在 bangumi.tv → 个人设置 → 开放接口 里创建。")
+                .font(.system(size: 13))
+                .foregroundStyle(KZ.dim)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let name = BangumiAccount.username, BangumiAccount.isLoggedIn {
+                HStack(spacing: 12) {
+                    Image(systemName: "checkmark.seal.fill").foregroundStyle(KZ.accent)
+                    Text("已登录：\(name)").font(.system(size: 15))
+                    Spacer()
+                    Button {
+                        BangumiAccount.logout()
+                        loginMessage = "已退出"
+                    } label: {
+                        Text("退出")
+                            .font(.system(size: 14))
+                            .padding(.horizontal, 18).padding(.vertical, 8)
+                            .background(Capsule().fill(KZ.card))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(16)
+                .background(RoundedRectangle(cornerRadius: 10).fill(KZ.card.opacity(0.6)))
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    TextField("粘贴 Access Token", text: $tokenInput)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 14, design: .monospaced))
+                        .padding(.horizontal, 16).padding(.vertical, 13)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(KZ.card))
+
+                    HStack(spacing: 12) {
+                        Button { Task { await doLogin() } } label: {
+                            HStack(spacing: 8) {
+                                if loggingIn { ProgressView().scaleEffect(0.7) }
+                                Text(loggingIn ? "验证中…" : "登录")
+                            }
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(KZ.onAccent)
+                            .padding(.horizontal, 26).padding(.vertical, 10)
+                            .background(Capsule().fill(KZ.accent))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(loggingIn || tokenInput.trimmingCharacters(in: .whitespaces).isEmpty)
+
+                        if let m = loginMessage {
+                            Text(m).font(.system(size: 13))
+                                .foregroundStyle(m.contains("失败") ? .orange : KZ.dim)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .background(RoundedRectangle(cornerRadius: 12).fill(KZ.card.opacity(0.35)))
+    }
+
+    private func doLogin() async {
+        let t = tokenInput.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return }
+        loggingIn = true
+        loginMessage = nil
+        defer { loggingIn = false }
+
+        if let name = await BangumiAPI.me(token: t) {
+            BangumiAccount.token = t
+            BangumiAccount.username = name
+            loginMessage = "登录成功"
+            tokenInput = ""
+        } else {
+            loginMessage = "验证失败，Token 无效或网络不通"
+        }
+    }
+
     @ViewBuilder
     private var detail: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 switch section {
+                case .account:  accountPanel
                 case .player:   playerPanel
                 case .resource: resourcePanel
                 case .rules:    RuleStoreView()

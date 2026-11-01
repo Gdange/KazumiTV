@@ -9,7 +9,7 @@ struct PopularView: View {
     @State private var showSearch = false
     @State private var offset = 0
     @State private var tag = ""            // "" = 热门番组
-    @State private var opened: MediaItem?
+    @State private var opened: OpenTarget?
     @State private var openingID: Int?
     @State private var openError: String?
 
@@ -20,7 +20,7 @@ struct PopularView: View {
         NavigationStack {
             content
                 .navigationDestination(item: $opened) { m in
-                    DetailView(item: m, initialRule: defaultRule)
+                    DetailView(item: m.item, initialRule: defaultRule, knownSubject: m.subject)
                 }
         }
     }
@@ -89,40 +89,22 @@ struct PopularView: View {
     }
 
     private func tagChip(_ label: String, value: String) -> some View {
-        Button {
+        TagChip(label: label, selected: tag == value) {
             guard tag != value else { return }
             tag = value
             items = []
             offset = 0
             Task { await loadMore() }
-        } label: {
-            Text(label)
-                .font(.system(size: 14, weight: tag == value ? .semibold : .regular))
-                .foregroundStyle(tag == value ? KZ.onAccent : KZ.label)
-                .padding(.horizontal, 16).padding(.vertical, 7)
-                .background(Capsule().fill(tag == value ? KZ.accent : KZ.card))
         }
-        .buttonStyle(.plain)
     }
 
     /// 点海报：按条目名在当前源里搜一次，取最近匹配进详情
+    /// 点海报：直接用 Bangumi 条目进详情，不搜采集站（搜源推迟到点「开始观看」）
     private func open(_ item: BangumiItem) async {
-        guard openingID == nil else { return }
-        openingID = item.id
-        defer { openingID = nil }
-
         let name = item.displayName
-        let src = XPathSource(rule: defaultRule)
-        do {
-            let results = try await src.search(name)
-            guard let first = results.first else {
-                status = "「\(name)」在该源没搜到"
-                return
-            }
-            opened = first
-        } catch {
-            status = "打开失败：\(error.localizedDescription)"
-        }
+        // 构造一个占位 MediaItem，真正的源搜索在详情页点「开始观看」时才做
+        let stub = MediaItem(name: name, href: "bgm://\(item.id)", poster: item.image, sourceID: "bangumi")
+        opened = .init(item: stub, subject: item)
     }
 
     private func loadMore() async {
@@ -138,6 +120,7 @@ struct PopularView: View {
                 return
             }
             offset += pageSize
+            ImagePrefetcher.prefetch(items.compactMap { $0.image })
             let existing = Set(items.map(\.id))
             items.append(contentsOf: batch.filter { !existing.contains($0.id) })
             status = "共 \(items.count) 部"
@@ -145,4 +128,43 @@ struct PopularView: View {
             status = "加载失败：\(error.localizedDescription)"
         }
     }
+}
+
+
+/// 可聚焦的分类标签
+struct TagChip: View {
+    let label: String
+    let selected: Bool
+    let action: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 14, weight: selected ? .semibold : .regular))
+                .foregroundStyle(selected ? KZ.onAccent : KZ.label)
+                .padding(.horizontal, 16).padding(.vertical, 7)
+                .background(Capsule().fill(selected ? KZ.accent : KZ.card))
+                .focusChip(focused)
+        }
+        .buttonStyle(.plain)
+        .focused($focused)
+    }
+}
+
+
+/// 打开详情的目标：条目 + 已知的 Bangumi 数据
+struct OpenTarget: Identifiable, Hashable {
+    let id: UUID
+    let item: MediaItem
+    let subject: BangumiItem?
+
+    init(item: MediaItem, subject: BangumiItem?) {
+        self.id = UUID()
+        self.item = item
+        self.subject = subject
+    }
+
+    static func == (a: OpenTarget, b: OpenTarget) -> Bool { a.id == b.id }
+    func hash(into h: inout Hasher) { h.combine(id) }
 }

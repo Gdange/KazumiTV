@@ -16,5 +16,6 @@ struct RootView: View {
                 .tabItem { Label("我的", systemImage: "gearshape.fill") }
         }
         .background(KZ.bg)
+        .overlay(AutoPlayRunner().allowsHitTesting(false))
     }
 }

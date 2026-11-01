@@ -3,6 +3,15 @@ import SwiftUI
 @main
 struct QYTVApp: App {
     @State private var rules: [KazumiRule] = RulesStore.loadBundled()
+
+    init() {
+        // 全局 URL 缓存：图片/接口响应落到磁盘，二次访问不再走网络
+        URLCache.shared = URLCache(
+            memoryCapacity: 64 * 1024 * 1024,
+            diskCapacity: 512 * 1024 * 1024,
+            diskPath: "kz_http_cache"
+        )
+    }
     @AppStorage("kz.appearance") private var appearance = "dark"
 
     var body: some Scene {

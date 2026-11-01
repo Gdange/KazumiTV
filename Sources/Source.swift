@@ -46,6 +46,11 @@ struct Chapter: Identifiable, Hashable {
     var id: String { href }
     let name: String
     let href: String
+    /// 同一集的其他线路（采集站常见：同一集在多条线路下各有一条）
+    var alternatives: [String] = []
+
+    /// href + 所有备选线路
+    var allHrefs: [String] { [href] + alternatives }
 }
 
 /// 播放目标：把"能不能播"和"怎么播"都表达清楚

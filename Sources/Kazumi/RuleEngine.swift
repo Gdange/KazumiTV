@@ -38,7 +38,9 @@ struct RuleEngine {
     /// 搜索：返回条目（名称 + 详情链接）
     func search(_ rule: KazumiRule, keyword: String) async throws -> [RuleSearchItem] {
         guard let url = rule.searchURL(for: keyword) else { throw EngineError.badURL }
+        NSLog("[KZ-SEARCH] keyword=%@ url=%@", keyword, url.absoluteString)
         let html = try await fetch(url, ua: rule.userAgent)
+        NSLog("[KZ-SEARCH] htmlBytes=%d", html.count)
 
         // 调试：落一份到 Documents，模拟器里可以直接看
         if let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -93,15 +95,13 @@ struct RuleEngine {
                 out.append(RuleChapter(name: name, href: href))
             }
         } else {
-            // 多个容器 = 多条线路，只用第一条有内容的，避免同一集重复出现
+            // 多个容器 = 多条线路：全部收下，交给上层按剧集名合并成「一集多线路」
             for road in roads {
-                var line: [RuleChapter] = []
                 for n in doc.query(in: road.node, rule.chapterResult) {
                     guard let href = n.href, !href.isEmpty else { continue }
-                    let name = n.text.isEmpty ? "第 \(line.count + 1) 集" : n.text
-                    line.append(RuleChapter(name: name, href: href))
+                    let name = n.text.isEmpty ? "第 \(out.count + 1) 集" : n.text
+                    out.append(RuleChapter(name: name, href: href))
                 }
-                if line.count > out.count { out = line }
             }
         }
 

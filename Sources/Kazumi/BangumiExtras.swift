@@ -29,6 +29,7 @@ struct BgmComment: Identifiable {
     var rate: Int
     var text: String
     var date: String
+    var avatar: String? = nil
 }
 
 extension BangumiAPI {
@@ -84,24 +85,30 @@ extension BangumiAPI {
     }
 
     /// 吐槽（评论）—— 官方用 next.bgm.tv/p1 这套，失败重试 3 次
-    static func comments(_ id: Int, limit: Int = 20) async throws -> [BgmComment] {
+    /// 吐槽分页：返回本页数据和总数
+    static func comments(_ id: Int, limit: Int = 20, offset: Int = 0) async throws -> (items: [BgmComment], total: Int) {
         var root: [String: Any]?
         for attempt in 0..<3 {
-            if let r = try? await getJSON("https://next.bgm.tv/p1/subjects/\(id)/comments?limit=\(limit)&offset=0") as? [String: Any] {
+            if let r = try? await getJSON("https://next.bgm.tv/p1/subjects/\(id)/comments?limit=\(limit)&offset=\(offset)") as? [String: Any] {
                 root = r
                 break
             }
             try? await Task.sleep(nanoseconds: UInt64(500_000_000 * (attempt + 1)))
         }
         guard let root, let arr = root["data"] as? [[String: Any]]
-        else { return [] }
-        return arr.compactMap { c in
+        else { return ([], 0) }
+        let items = arr.compactMap { c -> BgmComment? in
             guard let cid = c["id"] as? Int else { return nil }
-            let user = (c["user"] as? [String: Any])?["nickname"] as? String ?? "匿名"
+            let userObj = c["user"] as? [String: Any]
+            let user = userObj?["nickname"] as? String ?? "匿名"
+            let avatar = (userObj?["avatar"] as? [String: Any])?["large"] as? String
+                      ?? (userObj?["avatar"] as? [String: Any])?["medium"] as? String
             return BgmComment(id: cid, user: user,
                               rate: c["rate"] as? Int ?? 0,
                               text: c["comment"] as? String ?? "",
-                              date: (c["updatedAt"] as? String) ?? "")
+                              date: (c["updatedAt"] as? String) ?? "",
+                              avatar: avatar)
         }
+        return (items, root["total"] as? Int ?? items.count)
     }
 }

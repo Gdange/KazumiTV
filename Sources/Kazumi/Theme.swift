@@ -79,3 +79,46 @@ struct FocusCard: ViewModifier {
 extension View {
     func focusCard(_ focused: Bool) -> some View { modifier(FocusCard(focused: focused)) }
 }
+
+
+/// 小元素（标签、切换按钮）的焦点样式：描边 + 提亮，不放大
+struct FocusChip: ViewModifier {
+    var focused: Bool
+    var corner: CGFloat = 999
+    func body(content: Content) -> some View {
+        content
+            .overlay(
+                RoundedRectangle(cornerRadius: corner)
+                    .strokeBorder(focused ? KZ.accent : .clear, lineWidth: 2.5)
+            )
+            .shadow(color: focused ? KZ.accent.opacity(0.5) : .clear, radius: 10)
+            .scaleEffect(focused ? 1.04 : 1.0)
+            .animation(.easeOut(duration: 0.15), value: focused)
+    }
+}
+
+/// 列表行的焦点样式：左侧高亮条 + 淡色背景
+struct FocusRow: ViewModifier {
+    var focused: Bool
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(focused ? KZ.accent.opacity(0.16) : Color.clear)
+            )
+            .overlay(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(focused ? KZ.accent : .clear)
+                    .frame(width: 4)
+                    .padding(.vertical, 10)
+            }
+            .animation(.easeOut(duration: 0.15), value: focused)
+    }
+}
+
+extension View {
+    func focusChip(_ focused: Bool, corner: CGFloat = 999) -> some View {
+        modifier(FocusChip(focused: focused, corner: corner))
+    }
+    func focusRow(_ focused: Bool) -> some View { modifier(FocusRow(focused: focused)) }
+}
